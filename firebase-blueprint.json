@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "Midwife": {
+      "title": "Midwife",
+      "description": "A healthcare worker or midwife using the platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["midwife", "chw"] },
+        "clinic": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullName", "email", "role"]
+    },
+    "Patient": {
+      "title": "Patient",
+      "description": "A pregnant woman or mother being tracked.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "age": { "type": "number" },
+        "phoneNumber": { "type": "string" },
+        "location": { "type": "string" },
+        "lmpDate": { "type": "string", "format": "date-time" },
+        "eddDate": { "type": "string", "format": "date-time" },
+        "riskLevel": { "type": "string", "enum": ["low", "medium", "high"] },
+        "riskScore": { "type": "number" },
+        "weekOfPregnancy": { "type": "number" },
+        "bloodType": { "type": "string" },
+        "assignedMidwifeId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fullName", "assignedMidwifeId"]
+    },
+    "Visit": {
+      "title": "Visit",
+      "description": "A clinical visit record for a patient.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "midwifeId": { "type": "string" },
+        "visitDate": { "type": "string", "format": "date-time" },
+        "visitType": { "type": "string" },
+        "weight": { "type": "number" },
+        "bpSystolic": { "type": "number" },
+        "bpDiastolic": { "type": "number" },
+        "gpsLocation": { "type": "object" },
+        "notes": { "type": "string" },
+        "photos": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["patientId", "midwifeId", "visitDate", "visitType"]
+    },
+    "Child": {
+      "title": "Child",
+      "description": "A child belonging to a patient.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "dob": { "type": "string", "format": "date-time" },
+        "growthData": { "type": "array", "items": { "type": "object" } },
+        "vaccinationStatus": { "type": "string" }
+      },
+      "required": ["patientId", "fullName", "dob"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "A scheduled reminder for a patient.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "midwifeId": { "type": "string" },
+        "title": { "type": "string" },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["scheduled", "sent", "failed", "completed"] },
+        "type": { "type": "string" }
+      },
+      "required": ["patientId", "midwifeId", "title", "scheduledAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notifications for users.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "alert", "success"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "type", "read"]
+    }
+  },
+  "firestore": {
+    "/midwives/{midwifeId}": {
+      "schema": "Midwife",
+      "description": "Midwife profiles."
+    },
+    "/patients/{patientId}": {
+      "schema": "Patient",
+      "description": "Maternal health patients."
+    },
+    "/patients/{patientId}/visits/{visitId}": {
+      "schema": "Visit",
+      "description": "Clinical visits for a patient."
+    },
+    "/patients/{patientId}/children/{childId}": {
+      "schema": "Child",
+      "description": "Children records for a patient."
+    },
+    "/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Reminders for patients."
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications."
+    }
+  }
+}

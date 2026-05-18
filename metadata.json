@@ -1,0 +1,12 @@
+{
+  "name": "MamaTrack",
+  "description": "Secure, high-precision maternal health platform for tracking pregnancy progress, vitals, and clinical visits with AI-driven risk insights.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation",
+    "notifications"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
