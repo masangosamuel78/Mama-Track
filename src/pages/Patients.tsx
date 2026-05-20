@@ -15,14 +15,27 @@ export default function Patients() {
   useEffect(() => {
     async function fetchPatients() {
       if (!profile?.uid) return;
-      const q = query(
-        collection(db, 'patients'), 
-        where('assignedMidwifeId', '==', profile.uid),
-        orderBy('createdAt', 'desc')
-      );
-      const snapshot = await getDocs(q);
-      setPatients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
+      try {
+        let q;
+        if (profile.role === 'admin') {
+          q = query(
+            collection(db, 'patients'),
+            orderBy('createdAt', 'desc')
+          );
+        } else {
+          q = query(
+            collection(db, 'patients'),
+            where('assignedMidwifeId', '==', profile.uid),
+            orderBy('createdAt', 'desc')
+          );
+        }
+        const snapshot = await getDocs(q);
+        setPatients(snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) })));
+      } catch (err) {
+        console.error('Error fetching patients:', err);
+      } finally {
+        setLoading(false);
+      }
     }
     fetchPatients();
   }, [profile]);

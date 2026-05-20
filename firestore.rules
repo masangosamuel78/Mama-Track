@@ -11,62 +11,42 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isEmailVerified() {
-      return request.auth.token.email_verified == true;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
     function isOwner(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    // MIDWIVES
-    match /midwives/{midwifeId} {
-      allow get: if isSignedIn();
-      allow create: if isOwner(midwifeId) && isValidMidwife(incoming());
-      allow update: if isOwner(midwifeId) && isValidMidwife(incoming());
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == "admin@mamatrack.com";
     }
 
-    function isValidMidwife(data) {
-      return data.keys().hasAll(['uid', 'fullName', 'email', 'role']) &&
-             data.uid == request.auth.uid &&
-             data.fullName is string && data.fullName.size() <= 200 &&
-             data.role in ['midwife', 'chw'];
+    // USERS
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == "admin@mamatrack.com");
+    }
+
+    // MIDWIVES
+    match /midwives/{midwifeId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == midwifeId || request.auth.token.email == "admin@mamatrack.com");
     }
 
     // PATIENTS
     match /patients/{patientId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if isSignedIn();
     }
 
     // VISITS
     match /patients/{patientId}/visits/{visitId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidVisit(incoming());
-      allow update: if isSignedIn() && isValidVisit(incoming());
-    }
-
-    function isValidVisit(data) {
-      return data.keys().hasAll(['patientId', 'midwifeId', 'visitDate', 'visitType']) &&
-             data.patientId is string &&
-             data.midwifeId == request.auth.uid &&
-             data.visitType is string;
+      allow read, write: if isSignedIn();
     }
 
     // CHILDREN
     match /patients/{patientId}/children/{childId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // APPOINTMENTS
+    match /appointments/{appointmentId} {
       allow read, write: if isSignedIn();
     }
 
@@ -77,10 +57,8 @@ service cloud.firestore {
 
     // NOTIFICATIONS
     match /notifications/{notificationId} {
-      allow read: if isSignedIn() && request.auth.uid == resource.data.userId;
-      allow create: if isSignedIn() && request.auth.uid == request.resource.data.userId;
-      allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
-      allow delete: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow read, update, delete: if isSignedIn() && (request.auth.uid == resource.data.userId || request.auth.token.email == "admin@mamatrack.com");
+      allow create: if isSignedIn();
     }
   }
 }

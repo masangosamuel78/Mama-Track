@@ -120,6 +120,14 @@
     "/notifications/{notificationId}": {
       "schema": "Notification",
       "description": "User notifications."
+    },
+    "/users/{userId}": {
+      "schema": "object",
+      "description": "Unified authentication profiles for admin, midwives, and patients."
+    },
+    "/appointments/{appointmentId}": {
+      "schema": "object",
+      "description": "Patient care and follow-up medical appointments."
     }
   }
 }

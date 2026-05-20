@@ -20,12 +20,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
   // ... (navItems definition)
-  const navItems = [
+  const role = profile?.role || 'midwife';
+
+  let navItems = [
     { name: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
     { name: 'Patients', icon: 'groups', path: '/patients' },
     { name: 'Reminders', icon: 'notifications_active', path: '/reminders' },
     { name: 'Profile', icon: 'person', path: '/profile' },
   ];
+
+  if (role === 'admin') {
+    navItems = [
+      { name: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
+      { name: 'Patients', icon: 'groups', path: '/patients' },
+      { name: 'Profile', icon: 'person', path: '/profile' },
+    ];
+  } else if (role === 'patient') {
+    navItems = [
+      { name: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
+      { name: 'Profile', icon: 'person', path: '/profile' },
+    ];
+  }
 
   return (
     <div className="min-h-screen bg-background text-on-surface font-sans flex flex-col max-w-md mx-auto relative overflow-x-hidden">

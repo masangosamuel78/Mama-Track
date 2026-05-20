@@ -5,6 +5,19 @@ import { db } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
+import { calculateEDD, calculateWeeks } from '../lib/pregnancy';
+
+// Safe date formatter helper to prevent crash on invalid date formats
+const formatSafe = (dateStr: string, formatTemplate: string) => {
+  if (!dateStr) return 'TBD';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return 'TBD';
+    return format(d, formatTemplate);
+  } catch (err) {
+    return 'TBD';
+  }
+};
 
 export default function PatientDetail() {
   const { id } = useParams();
@@ -18,11 +31,15 @@ export default function PatientDetail() {
   // Modal States
   const [showChildModal, setShowChildModal] = useState(false);
   const [showVisitModal, setShowVisitModal] = useState(false);
+  const [showDatesModal, setShowDatesModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [visitToDelete, setVisitToDelete] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isEditingEdd, setIsEditingEdd] = useState(false);
-  const [newEdd, setNewEdd] = useState('');
+
+  // Pregnancy Date Edit States
+  const [editLmp, setEditLmp] = useState('');
+  const [editEdd, setEditEdd] = useState('');
+  const [editEddOverridden, setEditEddOverridden] = useState(false);
 
   // Form States
   const [childForm, setChildForm] = useState({ fullName: '', dob: '', gender: 'female' });
@@ -55,6 +72,30 @@ export default function PatientDetail() {
     }
     fetchData();
   }, [id]);
+
+  // Gestational Age (Week of pregnancy) calculations
+  const currentWeeks = patient?.lmpDate ? calculateWeeks(patient.lmpDate) : (patient?.weekOfPregnancy || 24);
+
+  // Auto-sync weekly progression to Firestore if it has drifted to keep list feeds up-to-date
+  useEffect(() => {
+    if (patient && id) {
+      const computedWeeks = patient.lmpDate ? calculateWeeks(patient.lmpDate) : 0;
+      if (computedWeeks > 0 && computedWeeks !== patient.weekOfPregnancy) {
+        updateDoc(doc(db, 'patients', id), { weekOfPregnancy: computedWeeks })
+          .then(() => {
+            setPatient((prev: any) => prev ? { ...prev, weekOfPregnancy: computedWeeks } : null);
+          })
+          .catch(err => console.error('Error auto-syncing week tracker:', err));
+      }
+    }
+  }, [patient?.lmpDate, patient?.weekOfPregnancy, id]);
+
+  // Adjust due date (EDD) standard calculations when LMP changes in modal
+  useEffect(() => {
+    if (editLmp && !editEddOverridden && showDatesModal) {
+      setEditEdd(calculateEDD(editLmp));
+    }
+  }, [editLmp, editEddOverridden, showDatesModal]);
 
   const handleAddChild = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,17 +153,29 @@ export default function PatientDetail() {
     }
   };
 
-  const handleUpdateEdd = async () => {
-    if (!id || !newEdd) return;
+  const handleUpdatePregnancyDates = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id || !editLmp || !editEdd) return;
     setIsSubmitting(true);
     try {
+      const computedWeeks = calculateWeeks(editLmp);
       const docRef = doc(db, 'patients', id);
-      await updateDoc(docRef, { eddDate: newEdd });
-      setPatient((prev: any) => ({ ...prev, eddDate: newEdd }));
-      setIsEditingEdd(false);
+      const updates = {
+        lmpDate: editLmp,
+        eddDate: editEdd,
+        eddOverridden: editEddOverridden,
+        weekOfPregnancy: computedWeeks
+      };
+      await updateDoc(docRef, updates);
+      
+      setPatient((prev: any) => ({
+        ...prev,
+        ...updates
+      }));
+      setShowDatesModal(false);
     } catch (err) {
-      console.error('Error updating EDD:', err);
-      alert('Failed to update EDD.');
+      console.error('Error updating pregnancy dates:', err);
+      alert('Failed to update pregnancy dates.');
     } finally {
       setIsSubmitting(false);
     }
@@ -158,12 +211,12 @@ export default function PatientDetail() {
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">{patient.fullName}</h1>
             <span className={cn(
-                  "px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider",
-                  patient.riskLevel === 'high' ? "bg-error/20 text-error" : 
-                  patient.riskLevel === 'medium' ? "bg-tertiary/20 text-tertiary" : 
-                  "bg-primary/20 text-primary"
-                )}>
-                  {patient.riskLevel} Risk
+              "px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider",
+              patient.riskLevel === 'high' ? "bg-error/20 text-error" : 
+              patient.riskLevel === 'medium' ? "bg-tertiary/20 text-tertiary" : 
+              "bg-primary/20 text-primary"
+            )}>
+              {patient.riskLevel} Risk
             </span>
           </div>
           <p className="text-xs text-on-surface-variant uppercase tracking-widest">ID: MT-{patient.id?.substring(0, 8).toUpperCase()}</p>
@@ -206,63 +259,50 @@ export default function PatientDetail() {
       {/* Pregnancy Status Card */}
       <section className="space-y-4">
         <h3 className="text-xs font-bold text-on-surface-variant uppercase tracking-widest pl-2">Pregnancy Status</h3>
-        <div className="bg-surface-container rounded-3xl p-6 border border-outline-variant/30 flex justify-between items-center bg-gradient-to-br from-surface-container to-surface-container-high shadow-lg">
-          <div className="space-y-1">
-            <div className="text-xs text-primary uppercase font-bold tracking-wider">Current Progress</div>
-            <div className="text-4xl font-black text-primary">Week {patient.weekOfPregnancy || 24}</div>
-            <div className="text-sm text-on-surface-variant">Active Pregnancy</div>
-            <div className="mt-4 w-32 h-2 bg-surface-container-highest rounded-full overflow-hidden">
+        <div className="bg-surface-container rounded-3xl p-6 border border-outline-variant/30 flex flex-col gap-6 bg-gradient-to-br from-surface-container to-surface-container-high shadow-lg">
+          <div className="flex justify-between items-start">
+            <div className="space-y-1">
+              <div className="text-xs text-primary uppercase font-bold tracking-wider">Current Progress</div>
+              <div className="text-4.5xl font-black text-primary leading-tight">Week {currentWeeks}</div>
+              <div className="text-xs text-on-surface-variant">Active Clinical Status</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-on-surface-variant uppercase font-bold tracking-wider">Estimated Due Date (EDD)</div>
+              <div className="text-lg font-black text-tertiary mt-1">
+                {patient.eddDate ? formatSafe(patient.eddDate, 'MMM dd, yyyy') : 'TBD'}
+              </div>
+              <div className="text-[9px] uppercase font-bold tracking-wider text-on-surface-variant opacity-85">
+                {patient.eddOverridden ? 'Manual Scan Override' : 'Naegele\'s Standard'}
+              </div>
+            </div>
+          </div>
+
+          <div className="w-full">
+            <div className="flex justify-between text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-2">
+              <span>LMP: {patient.lmpDate ? formatSafe(patient.lmpDate, 'MMM dd, yyyy') : 'Not Recorded'}</span>
+              <span>Due: {patient.eddDate ? formatSafe(patient.eddDate, 'MMM dd, yyyy') : 'TBD'}</span>
+            </div>
+            <div className="w-full h-2.5 bg-surface-container-highest rounded-full overflow-hidden">
                <motion.div 
                  initial={{ width: 0 }}
-                 animate={{ width: `${(patient.weekOfPregnancy / 40) * 100}%` }}
+                 animate={{ width: `${Math.min((currentWeeks / 40) * 100, 100)}%` }}
                  className="h-full bg-primary shadow-[0_0_10px_#46E4F0]" 
                />
             </div>
           </div>
-          
-          <div className="text-right">
-             <div className="text-xs text-on-surface-variant uppercase font-bold tracking-wider">EDD</div>
-             {isEditingEdd ? (
-               <div className="mt-1 flex flex-col items-end gap-2">
-                 <input 
-                   type="date" 
-                   value={newEdd} 
-                   onChange={(e) => setNewEdd(e.target.value)}
-                   className="bg-surface-container border border-primary text-xs p-1 rounded outline-none"
-                 />
-                 <div className="flex gap-2">
-                   <button 
-                     onClick={() => setIsEditingEdd(false)}
-                     className="text-[10px] text-on-surface-variant uppercase font-bold"
-                   >
-                     Cancel
-                   </button>
-                   <button 
-                     onClick={handleUpdateEdd}
-                     disabled={isSubmitting}
-                     className="text-[10px] text-primary uppercase font-bold"
-                   >
-                     {isSubmitting ? '...' : 'Save'}
-                   </button>
-                 </div>
-               </div>
-             ) : (
-               <div className="flex flex-col items-end">
-                 <div className="text-lg font-black text-tertiary">
-                   {patient.eddDate ? format(new Date(patient.eddDate), 'MMM dd, yyyy') : 'TBD'}
-                 </div>
-                 <button 
-                   onClick={() => {
-                     setNewEdd(patient.eddDate || '');
-                     setIsEditingEdd(true);
-                   }}
-                   className="text-[10px] text-primary uppercase font-bold underline"
-                 >
-                   Edit EDD
-                 </button>
-               </div>
-             )}
-          </div>
+
+          <button 
+            onClick={() => {
+              setEditLmp(patient.lmpDate || '');
+              setEditEdd(patient.eddDate || '');
+              setEditEddOverridden(patient.eddOverridden || false);
+              setShowDatesModal(true);
+            }}
+            className="w-full h-12 bg-surface-container-high hover:bg-surface-container-highest border border-outline-variant/30 text-primary font-bold text-xs uppercase tracking-widest rounded-2xl active:scale-95 transition-all text-center flex items-center justify-center gap-2"
+          >
+            <span className="material-symbols-outlined text-sm">edit_calendar</span>
+            Adjust Pregnancy Dates (LMP/EDD)
+          </button>
         </div>
       </section>
 
@@ -303,7 +343,7 @@ export default function PatientDetail() {
                   <div>
                     <div className="font-bold text-sm">{visit.visitType}</div>
                     <div className="text-[10px] text-on-surface-variant uppercase tracking-tighter font-bold">
-                      {visit.visitDate?.seconds ? format(new Date(visit.visitDate.seconds * 1000), 'MMM dd, yyyy') : 'Recent'} • {visit.clinic || 'Central Clinic'}
+                      {visit.visitDate?.seconds ? formatSafe(new Date(visit.visitDate.seconds * 1000).toISOString(), 'MMM dd, yyyy') : 'Recent'} • {visit.clinic || 'Central Clinic'}
                     </div>
                   </div>
                 </div>
@@ -336,10 +376,10 @@ export default function PatientDetail() {
                   <span className="material-symbols-outlined text-tertiary text-lg">child_care</span>
                </div>
                <div className="font-bold text-sm truncate">{child.fullName}</div>
-               <div className="text-[8px] text-on-surface-variant uppercase tracking-[0.1em]">{child.dob ? format(new Date(child.dob), 'MMM yyyy') : 'N/A'}</div>
+               <div className="text-[8px] text-on-surface-variant uppercase tracking-[0.1em]">{child.dob ? formatSafe(child.dob, 'MMM yyyy') : 'N/A'}</div>
                <div className="mt-2 flex items-center gap-1 text-[8px] text-primary font-bold uppercase tracking-widest">
                   <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                  Health Active
+                   Health Active
                </div>
             </div>
           ))}
@@ -361,6 +401,102 @@ export default function PatientDetail() {
       >
         <span className="material-symbols-outlined text-3xl font-bold">medical_information</span>
       </motion.button>
+
+      {/* Update Pregnancy Dates Modal */}
+      <AnimatePresence>
+        {showDatesModal && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !isSubmitting && setShowDatesModal(false)} className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] w-full max-w-md mx-auto" />
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-surface-container-high rounded-t-[2.5rem] z-[110] p-8 pb-12 shadow-2xl border-t border-outline-variant/30">
+              <div className="w-12 h-1.5 bg-outline-variant/30 rounded-full mx-auto mb-8" />
+              <h2 className="text-2xl font-bold mb-2">Adjust Pregnancy Dates</h2>
+              <p className="text-xs text-on-surface-variant mb-6">Modify gestational Last Menstrual Period (LMP) and Estimated Due Date (EDD).</p>
+              
+              <form onSubmit={handleUpdatePregnancyDates} className="space-y-5">
+                {/* LMP Input */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant ml-4">Last Menstrual Period (LMP)</label>
+                  <input 
+                    required 
+                    type="date"
+                    value={editLmp} 
+                    onChange={e => setEditLmp(e.target.value)} 
+                    className="w-full bg-surface-container border border-outline-variant/30 rounded-2xl py-4 px-6 focus:border-primary outline-none text-sm transition-colors" 
+                  />
+                </div>
+
+                {/* Sub-block showing calculated week */}
+                {editLmp && (
+                  <div className="bg-primary/5 border border-primary/25 rounded-2xl p-4 flex justify-between items-center">
+                    <div>
+                      <div className="text-[9px] uppercase font-bold tracking-widest text-primary">Recalculated Gestational Week</div>
+                      <div className="text-xl font-black text-primary mt-0.5">Week {calculateWeeks(editLmp)}</div>
+                    </div>
+                    <span className="material-symbols-outlined text-primary">maternal_health</span>
+                  </div>
+                )}
+
+                {/* Manual Override Flag Toggle */}
+                <div className="bg-surface-container rounded-2xl p-4 border border-outline-variant/30 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined text-on-surface-variant">edit_calendar</span>
+                    <div>
+                      <div className="text-sm font-bold">Manual EDD Override</div>
+                      <div className="text-[10px] text-on-surface-variant">Ultrasound or customized target date</div>
+                    </div>
+                  </div>
+                  <input 
+                    type="checkbox"
+                    checked={editEddOverridden}
+                    onChange={e => setEditEddOverridden(e.target.checked)}
+                    className="w-5 h-5 accent-primary rounded cursor-pointer"
+                  />
+                </div>
+
+                {/* EDD Input */}
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center ml-4 pr-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Estimated Due Date (EDD)</label>
+                    <span className="text-[8px] font-bold uppercase tracking-widest text-primary">
+                      {editEddOverridden ? 'Manual Match' : 'Auto Naegele Match'}
+                    </span>
+                  </div>
+                  <input 
+                    required 
+                    type="date"
+                    value={editEdd} 
+                    onChange={e => setEditEdd(e.target.value)} 
+                    disabled={!editEddOverridden}
+                    className={`w-full bg-surface-container border rounded-2xl py-4 px-6 focus:outline-none text-sm transition-colors ${
+                      editEddOverridden 
+                        ? 'border-primary/50 focus:border-primary text-on-surface' 
+                        : 'border-outline-variant/30 text-on-surface-variant opacity-70 pointer-events-none'
+                    }`}
+                  />
+                </div>
+
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => setShowDatesModal(false)}
+                    className="flex-1 h-14 bg-surface-container border border-outline-variant/30 text-on-surface font-bold rounded-2xl active:scale-95 transition-transform"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={isSubmitting || !editLmp || !editEdd} 
+                    type="submit" 
+                    className="flex-[2] h-14 bg-primary text-background font-bold rounded-2xl shadow-lg active:scale-95 transition-transform"
+                  >
+                    {isSubmitting ? 'Saving...' : 'Save Date Changes'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Add Child Modal */}
       <AnimatePresence>
